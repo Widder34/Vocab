@@ -155,6 +155,7 @@
       }
 
       function loadCardFront(){
+        if(quizQueue.length===0){ quizScreen.style.display='none'; return; }
         const c=quizQueue[currentIndex];
         quizCard.innerHTML=`${escapeHtml(c.front)}${c.frontImg?'<br><img src="'+c.frontImg+'" style="max-width:200px;">':''}`;
         flipBtn.classList.remove('hidden'); rightBtn.classList.add('hidden'); wrongBtn.classList.add('hidden');
@@ -167,9 +168,24 @@
         flipBtn.classList.add('hidden'); rightBtn.classList.remove('hidden'); wrongBtn.classList.remove('hidden');
       }
 
-      function markRight(){ quizQueue.splice(currentIndex,1); if(currentIndex>=quizQueue.length) currentIndex=0; loadCardFront(); }
-      function markWrong(){ const card=quizQueue.splice(currentIndex,1)[0]; quizQueue.push(card); if(currentIndex>=quizQueue.length) currentIndex=0; loadCardFront(); }
-      function updateProgressFS(){ progressFS.textContent=Math.round(((cards.length-quizQueue.length)/cards.length)*100)+'%'; }
+      function markRight(){
+        quizQueue.splice(currentIndex,1);
+        if(currentIndex >= quizQueue.length) currentIndex = 0;
+        if(quizQueue.length === 0){ quizScreen.style.display='none'; return; }
+        loadCardFront();
+      }
+
+      function markWrong(){
+        const card=quizQueue.splice(currentIndex,1)[0];
+        quizQueue.push(card);
+        if(currentIndex >= quizQueue.length) currentIndex = 0;
+        loadCardFront();
+      }
+
+      function updateProgressFS(){
+        progressFS.textContent=Math.round(((cards.length-quizQueue.length)/cards.length)*100)+'%';
+      }
+
       function shuffle(a){ for(let i=a.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]];} }
 
       addBtn.addEventListener('click', addCard);
