@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Karteikarten Lernen</title>
+  <style>
+    :root{ --primary:#007bff; --orange:#ff8c00; }
+    body { font-family: sans-serif; margin: 0; padding: 0; background: #f5f5f5; }
+    h1, h2 { text-align: center; }
+    .container { max-width: 700px; margin: 24px auto; padding: 20px; }
+    input, textarea, button { width: 100%; margin-top: 10px; padding: 10px; font-size: 1rem; border-radius: 5px; border: 1px solid #ccc; box-sizing: border-box; }
+    .row { display:flex; gap:10px; }
+    .small { width: auto; }
+    button { background: var(--primary); color: white; cursor: pointer; }
+    button:hover { filter:brightness(.95); }
+
+    .card-list { margin-top: 20px; }
+    .card-item { background: white; border: 1px solid #ddd; border-radius: 8px; padding: 10px; margin-top: 10px; display:flex; justify-content:space-between; align-items:center; gap:10px; }
+    .card-text { flex:1; }
+    .edit-btn { background: #ffc107; width:40px; height:34px; padding:5px; border-radius:6px; border:1px solid rgba(0,0,0,0.08); cursor:pointer; }
+    .remove-btn { background: #dc3545; width:40px; height:34px; padding:5px; border-radius:6px; border:1px solid rgba(0,0,0,0.08); cursor:pointer; color: white; }
+
+    #quizScreen { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: white; display: none; flex-direction: column; justify-content: center; align-items: center; padding: 20px; z-index:1000; }
+    #quizCard { font-size: 1.6rem; padding: 30px; border: 2px solid #000; border-radius: 10px; max-width: 720px; text-align: center; min-height:120px; display:flex; align-items:center; justify-content:center; flex-direction:column; gap:10px; }
+    .controls { margin-top: 20px; display:flex; gap:12px; flex-wrap:wrap; justify-content:center; }
+    .wide { width: 220px; }
+    .hidden { display:none !important; }
+
+    #startBtn { background: var(--orange); }
+    #rightBtn { background: green; color: white; }
+    #wrongBtn { background: red; color: white; }
+
+    .dropzone { border: 2px dashed #ccc; padding: 10px; text-align: center; cursor: pointer; }
+    .dropzone.hover { border-color: var(--primary); background: #eef; }
+
+    @media (max-width:600px){ #quizCard{ font-size:1.2rem; padding:20px } .wide{ width: 100%; } }
+  </style>
+</head>
+<body>
+
+  <div class="container">
+    <h1>Karteikarten Lernen</h1>
+
+    <h2>Neue Karte hinzufügen</h2>
+    <input id="frontInput" type="text" placeholder="Vorderseite Text" />
+    <div id="frontDrop" class="dropzone">Ziehe ein Bild hierher oder klicke</div>
+    <textarea id="backInput" placeholder="Rückseite Text"></textarea>
+    <div id="backDrop" class="dropzone">Ziehe ein Bild hierher oder klicke</div>
+
+    <div class="row">
+      <button id="addBtn">Hinzufügen</button>
+      <button id="startBtn" class="small">Abfrage starten</button>
+    </div>
+
+    <h2>Alle Karten</h2>
+    <div id="cardList" class="card-list" aria-live="polite"></div>
+  </div>
+
+  <div id="quizScreen" role="dialog" aria-modal="true">
+    <div id="progressFull" style="font-size:1.4rem; margin-bottom:20px;">Fortschritt: <span id='progressFS'>0%</span></div>
+    <div id="quizCard"></div>
+
+    <div class="controls">
+      <button id="flipBtn" class="wide">Umdrehen</button>
+      <button id="rightBtn" class="wide hidden">Richtig</button>
+      <button id="wrongBtn" class="wide hidden">Falsch</button>
+      <button id="closeQuiz" class="wide">Beenden</button>
+    </div>
+  </div>
+
+  <script>
+    (function(){
+      let cards = JSON.parse(localStorage.getItem('cards') || '[]');
+      let quizQueue = [];
+      let currentIndex = 0;
+      let frontImageData = '';
+      let backImageData = '';
+
+      const frontInput = document.getElementById('frontInput');
+      const backInput = document.getElementById('backInput');
+      const frontDrop = document.getElementById('frontDrop');
+      const backDrop = document.getElementById('backDrop');
+      const addBtn = document.getElementById('addBtn');
+      const startBtn = document.getElementById('startBtn');
+      const cardList = document.getElementById('cardList');
+
+      const quizScreen = document.getElementById('quizScreen');
+      const quizCard = document.getElementById('quizCard');
+      const flipBtn = document.getElementById('flipBtn');
+      const rightBtn = document.getElementById('rightBtn');
+      const wrongBtn = document.getElementById('wrongBtn');
+      const progressFS = document.getElementById('progressFS');
+      const closeQuiz = document.getElementById('closeQuiz');
+
+      function escapeHtml(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+      function saveCards(){ localStorage.setItem('cards', JSON.stringify(cards)); renderList(); }
+
+      function readFile(file, callback){
+        const reader = new FileReader();
+        reader.onload = e => callback(e.target.result);
+        reader.readAsDataURL(file);
+      }
+
+      function handleDrop(e, isFront){
+        e.preventDefault();
+        if(e.dataTransfer.files.length){
+          readFile(e.dataTransfer.files[0], data => {
+            if(isFront) frontImageData = data;
+            else backImageData = data;
+          });
+        }
+        e.target.classList.remove('hover');
+      }
+
+      function handleDragOver(e){ e.preventDefault(); e.currentTarget.classList.add('hover'); }
+      function handleDragLeave(e){ e.currentTarget.classList.remove('hover'); }
+
+      frontDrop.addEventListener('dragover', handleDragOver);
+      frontDrop.addEventListener('dragleave', handleDragLeave);
+      frontDrop.addEventListener('drop', e=>handleDrop(e,true));
+      frontDrop.addEventListener('click', ()=>{ const f = document.createElement('input'); f.type='file'; f.accept='image/*'; f.onchange=e=>readFile(f.files[0],data=>frontImageData=data); f.click(); });
+
+      backDrop.addEventListener('dragover', handleDragOver);
+      backDrop.addEventListener('dragleave', handleDragLeave);
+      backDrop.addEventListener('drop', e=>handleDrop(e,false));
+      backDrop.addEventListener('click', ()=>{ const f = document.createElement('input'); f.type='file'; f.accept='image/*'; f.onchange=e=>readFile(f.files[0],data=>backImageData=data); f.click(); });
+
+      function renderList(){
+        cardList.innerHTML='';
+        if(cards.length===0){ cardList.innerHTML='<em>Keine Karten vorhanden.</em>'; return; }
+        cards.forEach((c,i)=>{
+          const item=document.createElement('div'); item.className='card-item';
+          const txt=document.createElement('div'); txt.className='card-text';
+          txt.innerHTML=`<strong>V:</strong> ${escapeHtml(c.front)}${c.frontImg?'<br><img src="'+c.frontImg+'" style="max-width:100px;">':''}<br><strong>R:</strong> ${escapeHtml(c.back)}${c.backImg?'<br><img src="'+c.backImg+'" style="max-width:100px;">':''}`;
+          const edit=document.createElement('button'); edit.className='edit-btn'; edit.innerText='🖉'; edit.addEventListener('click',()=>editCard(i));
+          const remove=document.createElement('button'); remove.className='remove-btn'; remove.innerText='🗑'; remove.addEventListener('click',()=>{cards.splice(i,1); saveCards();});
+          item.appendChild(txt); item.appendChild(edit); item.appendChild(remove);
+          cardList.appendChild(item);
+        });
+      }
+
+      function addCard(){
+        if(!frontInput.value.trim() && !frontImageData){ console.log('Vorderseite leer'); return; }
+        if(!backInput.value.trim() && !backImageData){ console.log('Rückseite leer'); return; }
+        cards.push({ front: frontInput.value.trim(), back: backInput.value.trim(), frontImg: frontImageData, backImg: backImageData });
+        frontInput.value=''; backInput.value=''; frontImageData=''; backImageData='';
+        saveCards();
+      }
+
+      function startQuiz(){
+        if(cards.length===0){ console.log('Keine Karten vorhanden'); return; }
+        quizQueue = cards.map(c=>({...c})); shuffle(quizQueue); currentIndex=0;
+        quizScreen.style.display='flex'; loadCardFront();
+      }
+
+      function loadCardFront(){
+        const c=quizQueue[currentIndex];
+        quizCard.innerHTML=`${escapeHtml(c.front)}${c.frontImg?'<br><img src="'+c.frontImg+'" style="max-width:200px;">':''}`;
+        flipBtn.classList.remove('hidden'); rightBtn.classList.add('hidden'); wrongBtn.classList.add('hidden');
+        updateProgressFS();
+      }
+
+      function loadCardBack(){
+        const c=quizQueue[currentIndex];
+        quizCard.innerHTML=`${escapeHtml(c.back)}${c.backImg?'<br><img src="'+c.backImg+'" style="max-width:200px;">':''}`;
+        flipBtn.classList.add('hidden'); rightBtn.classList.remove('hidden'); wrongBtn.classList.remove('hidden');
+      }
+
+      function markRight(){ quizQueue.splice(currentIndex,1); if(currentIndex>=quizQueue.length) currentIndex=0; loadCardFront(); }
+      function markWrong(){ const card=quizQueue.splice(currentIndex,1)[0]; quizQueue.push(card); if(currentIndex>=quizQueue.length) currentIndex=0; loadCardFront(); }
+      function updateProgressFS(){ progressFS.textContent=Math.round(((cards.length-quizQueue.length)/cards.length)*100)+'%'; }
+      function shuffle(a){ for(let i=a.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]];} }
+
+      addBtn.addEventListener('click', addCard);
+      startBtn.addEventListener('click', startQuiz);
+      flipBtn.addEventListener('click', loadCardBack);
+      rightBtn.addEventListener('click', markRight);
+      wrongBtn.addEventListener('click', markWrong);
+      closeQuiz.addEventListener('click', ()=>{quizScreen.style.display='none';});
+
+      renderList();
+    })();
+  </script>
+
+</body>
+</html>
